@@ -30,7 +30,7 @@ def run_flask():
 TELEGRAM_BOT_TOKEN = "8750813780:AAHKpVFsxqT6BgYbISMZhiAp-ryzNsZ8IZY"
 TELEGRAM_CHAT_ID = "7743041008"
 RENDER_DEPLOY_HOOK_URL = "https://api.render.com/deploy/srv-daemtan40ujc73ft425g?key=o1ghEoCwW10"
-MAX_PRICE_LIMIT = 15.00  # Varsayılan limit $15.00
+MAX_PRICE_LIMIT = 10.00  # Varsayılan limit $15.00
 
 bildirilen_fiyatlar = {}    # { 'SYMBOL': son_bildirilen_fiyat }
 gunluk_sinyaller = {}       # { 'SYMBOL': {'entry': price, 'tp1': val, 'tp2': val} }
@@ -470,7 +470,7 @@ def start_scanner_loop():
     welcome_msg = (
         "⚡ *NASDAQ TERMINAL ONLINE* ⚡\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🎯 *Limit:* `$15.00 ve Altı`\n"
+        "🎯 *Limit:* `$10.00 ve Altı`\n"
         "📊 *Kapsam:* `Tüm NASDAQ Scanner`\n\n"
         "_Tarama başlatıldı..._"
     )
