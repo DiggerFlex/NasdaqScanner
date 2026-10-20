@@ -3,6 +3,7 @@ import datetime
 import threading
 import os
 import requests
+import yfinance as yf
 import pandas as pd
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
@@ -29,7 +30,7 @@ def run_flask():
 TELEGRAM_BOT_TOKEN = "8750813780:AAHKpVFsxqT6BgYbISMZhiAp-ryzNsZ8IZY"
 TELEGRAM_CHAT_ID = "7743041008"
 RENDER_DEPLOY_HOOK_URL = "https://api.render.com/deploy/srv-daemtan40ujc73ft425g?key=o1ghEoCwW10"
-MAX_PRICE_LIMIT = 50.00  # Test için limiti geçici olarak esnettik ($50.00)
+MAX_PRICE_LIMIT = 15.00  # Varsayılan limit $15.00
 
 bildirilen_fiyatlar = {}    # { 'SYMBOL': son_bildirilen_fiyat }
 gunluk_sinyaller = {}       # { 'SYMBOL': {'entry': price, 'tp1': val, 'tp2': val} }
@@ -109,8 +110,8 @@ def check_telegram_commands():
                         send_telegram_msg(f"⚡ *Gecikme:* `{latency:.0f} ms`")
 
                     elif text == "/test":
-                        send_telegram_msg("🧪 *Test sinyali tetikleniyor (AAPL)...*")
-                        process_symbol("AAPL", force_send=True)
+                        send_telegram_msg("🧪 *Test sinyali tetikleniyor...*")
+                        process_symbol("ISPC", force_send=True)
 
                     elif text in ["/status", "/durum"]:
                         status_badge = "🟢 AKTİF" if is_running else "🔴 PASİF"
@@ -188,11 +189,11 @@ def check_telegram_commands():
                         elif len(parts) == 2:
                             try:
                                 new_limit = float(parts[1])
-                                if 0.1 <= new_limit <= 200.0:
+                                if 0.1 <= new_limit <= 50.0:
                                     MAX_PRICE_LIMIT = new_limit
                                     send_telegram_msg(f"✅ *Limit Güncellendi:* `${MAX_PRICE_LIMIT:.2f}`")
                                 else:
-                                    send_telegram_msg("⚠️ $0.10 ile $200.00 arası girin.")
+                                    send_telegram_msg("⚠️ $0.10 ile $50.00 arası girin.")
                             except ValueError:
                                 send_telegram_msg("⚠️ Örnek: `/limit 15`")
     except Exception as e:
@@ -219,42 +220,28 @@ def get_penny_stocks():
 
 
 # ==========================================
-# 5. VERİ ÇEKME FONKSİYONU
+# 5. GÜVENLİ YFINANCE VERİ ÇEKME FONKSİYONU
 # ==========================================
 def get_market_history(symbol):
     try:
-        search_url = f"https://quoteapi.webullfintech.com/api/search/pc/tickers?keyword={symbol}&pageIndex=1&pageSize=1"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        search_res = requests.get(search_url, headers=headers, timeout=4).json()
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="1d", interval="1m")
+        if df.empty:
+            df = ticker.history(period="5d", interval="5m")
         
-        ticker_id = None
-        if "data" in search_res and search_res["data"]:
-            for item in search_res["data"]:
-                if item.get("symbol") == symbol:
-                    ticker_id = item.get("tickerId")
-                    break
-        
-        if not ticker_id:
-            return pd.DataFrame()
-
-        kline_url = f"https://quoteapi.webullfintech.com/api/quote/ticker/chart/query?tickerId={ticker_id}&type=m1&count=60"
-        kline_res = requests.get(kline_url, headers=headers, timeout=4).json()
-        
-        if "data" in kline_res and kline_res["data"]:
-            raw_data = kline_res["data"][0].get("data", [])
-            parsed = []
-            for item in raw_data:
-                parts = item.split(",")
-                if len(parts) >= 6:
-                    parsed.append({
-                        'Open': float(parts[1]),
-                        'Close': float(parts[2]),
-                        'High': float(parts[3]),
-                        'Low': float(parts[4]),
-                        'Volume': float(parts[5])
-                    })
-            if parsed:
-                return pd.DataFrame(parsed)
+        if not df.empty:
+            # Çoklu sütun yapılarını temizle
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            
+            df = df.rename(columns={
+                'Open': 'Open',
+                'High': 'High',
+                'Low': 'Low',
+                'Close': 'Close',
+                'Volume': 'Volume'
+            })
+            return df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
         return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
