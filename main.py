@@ -3,13 +3,11 @@ import datetime
 import threading
 import os
 import requests
-import feedparser
 import pandas as pd
 import numpy as np
-from dateutil import parser
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask
-from zoneinfo import ZoneInfo  # NASDAQ saat dilimi için
+from zoneinfo import ZoneInfo
 
 # ==========================================
 # 1. RENDER UYANIK TUTMA (FLASK SUNUCUSU)
@@ -18,7 +16,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "⚡ NASDAQ SCANNER ACTIVE ⚡"
+    return "⚡ NASDAQ SCANNER ACTIVE (WEBULL ENGINE) ⚡"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -31,12 +29,11 @@ def run_flask():
 TELEGRAM_BOT_TOKEN = "8750813780:AAHKpVFsxqT6BgYbISMZhiAp-ryzNsZ8IZY"
 TELEGRAM_CHAT_ID = "7743041008"
 RENDER_DEPLOY_HOOK_URL = "https://api.render.com/deploy/srv-daemtan40ujc73ft425g?key=o1ghEoCwW10"
-POLYGON_API_KEY = "2MCQinSzcjSGpa2NtrgML6xHrYCK4tLZ"
-MAX_PRICE_LIMIT = 15.00  # Varsayılan limit $15.00 çekildi
 
-bildirilen_fiyatlar = {}    # { 'SYMBOL': son_bildirilen_fiyat } -> Çoklu kırılım takibi için
+MAX_PRICE_LIMIT = 15.00  # Maksimum fiyat limiti ($15.00)
+
+bildirilen_fiyatlar = {}    # { 'SYMBOL': son_bildirilen_fiyat }
 gunluk_sinyaller = {}       # { 'SYMBOL': {'entry': price, 'tp1': val, 'tp2': val} }
-gonderilen_haberler = set() 
 
 # Zaman kontrol bayrakları
 rapor_gonderildi_bugun = False
@@ -46,7 +43,6 @@ son_gun_str = ""
 last_update_id = 0         
 is_running = True
 
-# Çakışmaları önlemek için kilit mekanizması
 lock = threading.Lock()
 
 
@@ -118,7 +114,7 @@ def check_telegram_commands():
                     elif text in ["/status", "/durum"]:
                         status_badge = "🟢 AKTİF" if is_running else "🔴 PASİF"
                         durum_msg = (
-                            f"🤖 *TERMINAL DURUMU*\n"
+                            f"🤖 *TERMINAL DURUMU (WEBULL)*\n"
                             f"━━━━━━━━━━━━━━━━━━━━━\n\n"
                             f"🌐 *Sistem:* {status_badge}\n"
                             f"💵 *Max Fiyat:* `${MAX_PRICE_LIMIT:.2f}`\n"
@@ -162,27 +158,10 @@ def check_telegram_commands():
                             msg_id = init_res.get("result", {}).get("message_id")
                             try:
                                 requests.post(RENDER_DEPLOY_HOOK_URL, timeout=10)
-                                
-                                animasyon_kareleri = [
-                                    "🔄 *Render Bağlantısı Kuruluyor...* ⏳",
-                                    "🔄 *Render Bağlantısı Kuruluyor...*\n\n📡 _Sunucuya erişildi..._",
-                                    "⚙️ *Sistem Çekirdeği Yükleniyor...*\n\n[▓░░░░░░░░░] *%10* — _Bağlantı kuruldu_",
-                                    "⚙️ *Mumlar Yakılıyor...*\n\n[▓▓▓░░░░░░░] *%30* — _Hisseler tarandı_",
-                                    "🔥 *Midas Motoru Aktifleştiriliyor...*\n\n[▓▓▓▓▓░░░░░] *%50* — _Para kazanma modu devrede_ 💵",
-                                    "📊 *NASDAQ Veri Akışı Bağlanıyor...*\n\n[▓▓▓▓▓▓▓░░░] *%70* — _Nasdaq taranıyor_",
-                                    "🛡️ *Risk Kontrolleri Yapılıyor...*\n\n[▓▓▓▓▓▓▓▓▓░] *%90* — _Best Scanner created by Dipper_",
-                                    "🚀 *İŞLEM TAMAMLANDI!*\n\n[▓▓▓▓▓▓▓▓▓▓] *%100*\n\n✨ *Nasdaq Scanner Renderlandı!*"
-                                ]
-                                
-                                for kare in animasyon_kareleri:
-                                    time.sleep(1.2)
-                                    if msg_id:
-                                        edit_telegram_msg(msg_id, kare)
+                                edit_telegram_msg(msg_id, "🚀 *Sistem Webull Engine ile Yeniden Başlatıldı!*")
                             except Exception as e:
                                 if msg_id:
                                     edit_telegram_msg(msg_id, f"⚠️ *Hata:* {e}")
-                        else:
-                            send_telegram_msg("⚠️ URL eksik.")
 
                     elif text.startswith("/limit"):
                         parts = text.split()
@@ -217,35 +196,49 @@ def get_penny_stocks():
             if len(clean_symbols) > 100:
                 return clean_symbols
         except Exception as e:
-            print(f"Borsa listesi çekilemedi, 5 sn sonra tekrar deneniyor... Hata: {e}")
+            print(f"Borsa listesi çekilemedi: {e}")
             time.sleep(5)
 
 
 # ==========================================
-# 5. POLYGON.IO VERİ ÇEKME FONKSİYONU
+# 5. WEBULL MOBİL PUBLIC API MOTORU
 # ==========================================
-def get_polygon_history(symbol):
+def get_webull_history(symbol):
     try:
-        url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/1/minute/2026-01-01/2026-12-31"
-        params = {
-            "adjusted": "true",
-            "sort": "desc",
-            "limit": 50,
-            "apiKey": POLYGON_API_KEY
-        }
-        res = requests.get(url, params=params, timeout=5).json()
+        # Webull Ticker ID Sorgusu
+        search_url = f"https://quoteapi.webullfintech.com/api/search/pc/tickers?keyword={symbol}&pageIndex=1&pageSize=1"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        search_res = requests.get(search_url, headers=headers, timeout=4).json()
         
-        if "results" in res and res["results"]:
-            df = pd.DataFrame(res["results"])
-            df = df.iloc[::-1].reset_index(drop=True)
-            df.rename(columns={
-                'c': 'Close',
-                'o': 'Open',
-                'h': 'High',
-                'l': 'Low',
-                'v': 'Volume'
-            }, inplace=True)
-            return df
+        ticker_id = None
+        if "data" in search_res and search_res["data"]:
+            for item in search_res["data"]:
+                if item.get("symbol") == symbol:
+                    ticker_id = item.get("tickerId")
+                    break
+        
+        if not ticker_id:
+            return pd.DataFrame()
+
+        # Webull Dakikalık Mum Verisi
+        kline_url = f"https://quoteapi.webullfintech.com/api/quote/ticker/chart/query?tickerId={ticker_id}&type=m1&count=60"
+        kline_res = requests.get(kline_url, headers=headers, timeout=4).json()
+        
+        if "data" in kline_res and kline_res["data"]:
+            raw_data = kline_res["data"][0].get("data", [])
+            parsed = []
+            for item in raw_data:
+                parts = item.split(",")
+                if len(parts) >= 6:
+                    parsed.append({
+                        'Open': float(parts[1]),
+                        'Close': float(parts[2]),
+                        'High': float(parts[3]),
+                        'Low': float(parts[4]),
+                        'Volume': float(parts[5])
+                    })
+            if parsed:
+                return pd.DataFrame(parsed)
         return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
@@ -297,7 +290,7 @@ def detect_breakout_type(df, vol_ratio, resistance, last_price):
 # ==========================================
 def process_symbol(symbol, force_send=False):
     try:
-        df = get_polygon_history(symbol)
+        df = get_webull_history(symbol)
 
         if df.empty:
             return
@@ -313,11 +306,10 @@ def process_symbol(symbol, force_send=False):
             if last_price >= MAX_PRICE_LIMIT or last_price <= 0.05:
                 return
 
-            # ESNETİLMİŞ DİRENÇ VE HACİM ŞARTLARI
             distance_to_resistance = (last_price - resistance) / resistance if resistance > 0 else 0.0
             vol_ratio = last_volume / avg_volume if avg_volume > 0 else 1.0
 
-            # Dirence %6'ya kadar yaklaşmış veya direnci %6'ya kadar yeni kırmış olanları yakalar
+            # Kırılım Öncesi Sıkışma & Hacim Tespiti (%6 Direnç Bandı)
             is_near_breakout = (-0.06 <= distance_to_resistance <= 0.06 and last_price >= open_price)
             is_volume_spike = (vol_ratio >= 1.2)
 
@@ -326,11 +318,10 @@ def process_symbol(symbol, force_send=False):
         else:
             vol_ratio = 3.0
 
-        # ÇOKLU KIRILIM KONTROLÜ (TNON, TRUG vb. için)
+        # ÇOKLU SİNYAL KONTROLÜ
         with lock:
             if symbol in bildirilen_fiyatlar:
                 son_fiyat = bildirilen_fiyatlar[symbol]
-                # Eğer yeni kırılım fiyatı önceki bildirimden en az %5 yukarıda değilse atla
                 if last_price < son_fiyat * 1.05 and not force_send:
                     return
             
@@ -349,8 +340,8 @@ def process_symbol(symbol, force_send=False):
             f"⚡ *Hacim:* `{vol_ratio:.1f}x`\n\n"
             f"💵 *Giriş:* `${last_price:.2f}`\n"
             f"🛡️ *Stop-Loss:* `${tight_stop:.2f}`\n\n"
-            f"🎯 *1. Hedef (+%{tp1_pct:.1f}):* `${tp1:.2f}`\n"
-            f"🎯 *2. Hedef (+%{tp2_pct:.1f}):* `${tp2:.2f}`\n\n"
+            f"🎯 *TP1 (+%{tp1_pct:.1f}):* `${tp1:.2f}`\n"
+            f"🎯 *TP2 (+%{tp2_pct:.1f}):* `${tp2:.2f}`\n\n"
             f"📈 [Grafik]({tv_url})"
         )
         
@@ -368,64 +359,7 @@ def process_symbol(symbol, force_send=False):
 
 
 # ==========================================
-# 8. HABER MODÜLÜ
-# ==========================================
-def kritik_piyasa_etkisi_analiz_et(metin):
-    metin_lower = metin.lower()
-    olumsuz_kelimeler = ["war", "strike", "attack", "sanction", "tariff", "tariffs", "threat", "china", "russia", "ban"]
-    if any(word in metin_lower for word in olumsuz_kelimeler):
-        return "🔴 *Etki:* `NEGATİF`"
-    else:
-        return "🟢 *Etki:* `POZİTİF`"
-
-def trump_ve_piyasa_haberleri_kontrol_et():
-    global gonderilen_haberler
-    rss_url = "https://news.google.com/rss/search?q=Trump+(war+OR+tariff+OR+sanction+OR+attack+OR+China+OR+strike)&hl=en-US&gl=US&ceid=US:en"
-    kritik_kelimeler = ["war", "tariff", "tariffs", "sanction", "attack", "strike", "china", "russia", "military", "missile", "threat", "ban"]
-    
-    try:
-        feed = feedparser.parse(rss_url)
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
-        
-        for entry in feed.entries[:5]:
-            haber_id = entry.title
-            baslik_lower = entry.title.lower()
-            
-            if haber_id in gonderilen_haberler:
-                continue
-                
-            if hasattr(entry, 'published'):
-                try:
-                    pub_time = parser.parse(entry.published)
-                    if pub_time.tzinfo is None:
-                        pub_time = pub_time.replace(tzinfo=datetime.timezone.utc)
-                    if (now_utc - pub_time).total_seconds() / 60.0 > 60:
-                        gonderilen_haberler.add(haber_id)
-                        continue
-                except Exception:
-                    pass
-
-            if any(word in baslik_lower for word in kritik_kelimeler):
-                etki = kritik_piyasa_etkisi_analiz_et(entry.title)
-                msg = (
-                    f"🌐 *HABER BÜLTENİ*\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"📌 *Başlık:* _{entry.title}_\n\n"
-                    f"{etki}"
-                )
-                send_telegram_msg(msg)
-                gonderilen_haberler.add(haber_id)
-    except Exception as e:
-        print(f"Haber hatasi: {e}")
-
-def haber_tarama_loop():
-    while True:
-        trump_ve_piyasa_haberleri_kontrol_et()
-        time.sleep(3600)
-
-
-# ==========================================
-# 9. GÜN SONU RAPORU
+# 8. GÜN SONU RAPORU
 # ==========================================
 def gun_sonu_raporu_gonder():
     global gunluk_sinyaller
@@ -439,7 +373,7 @@ def gun_sonu_raporu_gonder():
 
     for symbol, data in gunluk_sinyaller.items():
         try:
-            df = get_polygon_history(symbol)
+            df = get_webull_history(symbol)
             
             entry = data['entry']
             tp1 = data.get('tp1', entry * 1.05)
@@ -451,7 +385,7 @@ def gun_sonu_raporu_gonder():
                 kademe_str = "(TÜM kademeler tamam)"
                 hedef_fiyat = tp2
             elif zirve >= tp1:
-                kademe_str = "(1. kademe tamam)"
+                kademe_str = "(TP1 tamam)"
                 hedef_fiyat = tp1
             else:
                 kademe_str = "(takipte)"
@@ -516,7 +450,7 @@ def piyasa_zaman_kontrolu():
 
 
 # ==========================================
-# 10. ANA DÖNGÜ
+# 9. ANA DÖNGÜ VE BAŞLATICI
 # ==========================================
 def canli_kesintisiz_tarama():
     piyasa_zaman_kontrolu()
@@ -533,7 +467,7 @@ def start_scanner_loop():
         "⚡ *NASDAQ TERMINAL ONLINE* ⚡\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
         "🎯 *Limit:* `$15.00 ve Altı`\n"
-        "📊 *Kapsam:* `Tüm NASDAQ (Polygon.io Engine)`\n\n"
+        "📊 *Kapsam:* `Tüm NASDAQ (Webull Engine)`\n\n"
         "_Tarama başlatıldı..._"
     )
     send_telegram_msg(welcome_msg)
@@ -555,7 +489,6 @@ def telegram_komut_dinleme_loop():
         time.sleep(2)
 
 if __name__ == '__main__':
-    threading.Thread(target=haber_tarama_loop, daemon=True).start()
     threading.Thread(target=start_scanner_loop, daemon=True).start()
     threading.Thread(target=telegram_komut_dinleme_loop, daemon=True).start()
     run_flask()
