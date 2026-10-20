@@ -29,9 +29,9 @@ def run_flask():
 TELEGRAM_BOT_TOKEN = "8750813780:AAHKpVFsxqT6BgYbISMZhiAp-ryzNsZ8IZY"
 TELEGRAM_CHAT_ID = "7743041008"
 RENDER_DEPLOY_HOOK_URL = "https://api.render.com/deploy/srv-daemtan40ujc73ft425g?key=o1ghEoCwW10"
-MAX_PRICE_LIMIT = 15.00  # Varsayılan limit $15.00 çekildi
+MAX_PRICE_LIMIT = 15.00  # Varsayılan limit $15.00
 
-bildirilen_fiyatlar = {}    # { 'SYMBOL': son_bildirilen_fiyat } -> Çoklu kırılım takibi için
+bildirilen_fiyatlar = {}    # { 'SYMBOL': son_bildirilen_fiyat }
 gunluk_sinyaller = {}       # { 'SYMBOL': {'entry': price, 'tp1': val, 'tp2': val} }
 
 # Zaman kontrol bayrakları
@@ -42,7 +42,6 @@ son_gun_str = ""
 last_update_id = 0         
 is_running = True
 
-# Çakışmaları önlemek için kilit mekanizması
 lock = threading.Lock()
 
 
@@ -81,8 +80,9 @@ def check_telegram_commands():
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
     
     try:
+        params = {"offset": last_update_id + 1, "timeout": 2}
+        res = requests.get(url, params=params, timeout=5).json()
         start_req = time.time()
-        res = requests.get(url, params={"offset": last_update_id + 1, "timeout": 2}).json()
         latency = (time.time() - start_req) * 1000
         
         if "result" in res:
@@ -109,6 +109,7 @@ def check_telegram_commands():
                         send_telegram_msg(f"⚡ *Gecikme:* `{latency:.0f} ms`")
 
                     elif text == "/test":
+                        send_telegram_msg("🧪 *Test sinyali tetikleniyor...*")
                         process_symbol("ISPC", force_send=True)
 
                     elif text in ["/status", "/durum"]:
@@ -164,9 +165,9 @@ def check_telegram_commands():
                                     "🔄 *Render Bağlantısı Kuruluyor...*\n\n📡 _Sunucuya erişildi..._",
                                     "⚙️ *Sistem Çekirdeği Yükleniyor...*\n\n[▓░░░░░░░░░] *%10* — _Bağlantı kuruldu_",
                                     "⚙️ *Mumlar Yakılıyor...*\n\n[▓▓▓░░░░░░░] *%30* — _Hisseler tarandı_",
-                                    "🔥 *Midas Motoru Aktifleştiriliyor...*\n\n[▓▓▓▓▓░░░░░] *%50* — _Para kazanma modu devrede_ 💵",
+                                    "🔥 *Motor Aktifleştiriliyor...*\n\n[▓▓▓▓▓░░░░░] *%50* — _Para kazanma modu devrede_ 💵",
                                     "📊 *NASDAQ Veri Akışı Bağlanıyor...*\n\n[▓▓▓▓▓▓▓░░░] *%70* — _Nasdaq taranıyor_",
-                                    "🛡️ *Risk Kontrolleri Yapılıyor...*\n\n[▓▓▓▓▓▓▓▓▓░] *%90* — _Best Scanner created by Dipper_",
+                                    "🛡️ *Risk Kontrolleri Yapılıyor...*\n\n[▓▓▓▓▓▓▓▓▓░] *%90* — _Güvenlik aktif_",
                                     "🚀 *İŞLEM TAMAMLANDI!*\n\n[▓▓▓▓▓▓▓▓▓▓] *%100*\n\n✨ *Nasdaq Scanner Renderlandı!*"
                                 ]
                                 
@@ -194,8 +195,8 @@ def check_telegram_commands():
                                     send_telegram_msg("⚠️ $0.10 ile $50.00 arası girin.")
                             except ValueError:
                                 send_telegram_msg("⚠️ Örnek: `/limit 15`")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Komut dinleme hatasi: {e}")
 
 
 # ==========================================
@@ -213,12 +214,12 @@ def get_penny_stocks():
             if len(clean_symbols) > 100:
                 return clean_symbols
         except Exception as e:
-            print(f"Borsa listesi çekilemedi, 5 sn sonra tekrar deneniyor... Hata: {e}")
+            print(f"Borsa listesi çekilemedi: {e}")
             time.sleep(5)
 
 
 # ==========================================
-# 5. YÜKSEK HIZLI VERİ ÇEKME FONKSİYONU
+# 5. VERİ ÇEKME FONKSİYONU
 # ==========================================
 def get_market_history(symbol):
     try:
@@ -308,6 +309,8 @@ def process_symbol(symbol, force_send=False):
         df = get_market_history(symbol)
 
         if df.empty:
+            if force_send:
+                send_telegram_msg(f"⚠️ *Test Hatası:* `{symbol}` için veri alınamadı.")
             return
 
         last_price = df['Close'].iloc[-1]
@@ -321,11 +324,9 @@ def process_symbol(symbol, force_send=False):
             if last_price >= MAX_PRICE_LIMIT or last_price <= 0.05:
                 return
 
-            # ESNETİLMİŞ DİRENÇ VE HACİM ŞARTLARI
             distance_to_resistance = (last_price - resistance) / resistance if resistance > 0 else 0.0
             vol_ratio = last_volume / avg_volume if avg_volume > 0 else 1.0
 
-            # Dirence %6'ya kadar yaklaşmış veya direnci %6'ya kadar yeni kırmış olanları yakalar
             is_near_breakout = (-0.06 <= distance_to_resistance <= 0.06 and last_price >= open_price)
             is_volume_spike = (vol_ratio >= 1.2)
 
@@ -334,12 +335,10 @@ def process_symbol(symbol, force_send=False):
         else:
             vol_ratio = 3.0
 
-        # ÇOKLU KIRILIM KONTROLÜ (TNON, TRUG vb. için)
         with lock:
-            if symbol in bildirilen_fiyatlar:
+            if symbol in bildirilen_fiyatlar and not force_send:
                 son_fiyat = bildirilen_fiyatlar[symbol]
-                # Eğer yeni kırılım fiyatı önceki bildirimden en az %5 yukarıda değilse atla
-                if last_price < son_fiyat * 1.05 and not force_send:
+                if last_price < son_fiyat * 1.05:
                     return
             
             bildirilen_fiyatlar[symbol] = last_price
@@ -371,8 +370,9 @@ def process_symbol(symbol, force_send=False):
                 'tp2': tp2
             }
             
-    except Exception:
-        pass
+    except Exception as e:
+        if force_send:
+            send_telegram_msg(f"⚠️ *Test İstisnası:* `{e}`")
 
 
 # ==========================================
@@ -467,7 +467,7 @@ def piyasa_zaman_kontrolu():
 
 
 # ==========================================
-# 9. ANA DÖNGÜ
+# 9. ANA DÖNGÜ VE BAŞLATICI
 # ==========================================
 def canli_kesintisiz_tarama():
     piyasa_zaman_kontrolu()
@@ -481,7 +481,7 @@ def canli_kesintisiz_tarama():
 
 def start_scanner_loop():
     welcome_msg = (
-        "⚡ *NASDAQ SCANNER ONLINE* ⚡\n"
+        "⚡ *NASDAQ TERMINAL ONLINE* ⚡\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
         "🎯 *Limit:* `$15.00 ve Altı`\n"
         "📊 *Kapsam:* `Tüm NASDAQ Scanner`\n\n"
@@ -502,8 +502,8 @@ def telegram_komut_dinleme_loop():
         try:
             check_telegram_commands()
         except Exception as e:
-            print(f"Hata: {e}")
-        time.sleep(2)
+            print(f"Komut dongu hatasi: {e}")
+        time.sleep(1)
 
 if __name__ == '__main__':
     threading.Thread(target=start_scanner_loop, daemon=True).start()
