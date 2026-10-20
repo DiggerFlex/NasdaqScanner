@@ -29,7 +29,7 @@ def run_flask():
 TELEGRAM_BOT_TOKEN = "8750813780:AAHKpVFsxqT6BgYbISMZhiAp-ryzNsZ8IZY"
 TELEGRAM_CHAT_ID = "7743041008"
 RENDER_DEPLOY_HOOK_URL = "https://api.render.com/deploy/srv-daemtan40ujc73ft425g?key=o1ghEoCwW10"
-MAX_PRICE_LIMIT = 15.00  # Varsayılan limit $15.00
+MAX_PRICE_LIMIT = 50.00  # Test için limiti geçici olarak esnettik ($50.00)
 
 bildirilen_fiyatlar = {}    # { 'SYMBOL': son_bildirilen_fiyat }
 gunluk_sinyaller = {}       # { 'SYMBOL': {'entry': price, 'tp1': val, 'tp2': val} }
@@ -109,8 +109,8 @@ def check_telegram_commands():
                         send_telegram_msg(f"⚡ *Gecikme:* `{latency:.0f} ms`")
 
                     elif text == "/test":
-                        send_telegram_msg("🧪 *Test sinyali tetikleniyor...*")
-                        process_symbol("ISPC", force_send=True)
+                        send_telegram_msg("🧪 *Test sinyali tetikleniyor (AAPL)...*")
+                        process_symbol("AAPL", force_send=True)
 
                     elif text in ["/status", "/durum"]:
                         status_badge = "🟢 AKTİF" if is_running else "🔴 PASİF"
@@ -188,11 +188,11 @@ def check_telegram_commands():
                         elif len(parts) == 2:
                             try:
                                 new_limit = float(parts[1])
-                                if 0.1 <= new_limit <= 50.0:
+                                if 0.1 <= new_limit <= 200.0:
                                     MAX_PRICE_LIMIT = new_limit
                                     send_telegram_msg(f"✅ *Limit Güncellendi:* `${MAX_PRICE_LIMIT:.2f}`")
                                 else:
-                                    send_telegram_msg("⚠️ $0.10 ile $50.00 arası girin.")
+                                    send_telegram_msg("⚠️ $0.10 ile $200.00 arası girin.")
                             except ValueError:
                                 send_telegram_msg("⚠️ Örnek: `/limit 15`")
     except Exception as e:
