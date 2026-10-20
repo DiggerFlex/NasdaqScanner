@@ -481,7 +481,7 @@ def canli_kesintisiz_tarama():
 
 def start_scanner_loop():
     welcome_msg = (
-        "⚡ *NASDAQ TERMINAL ONLINE* ⚡\n"
+        "⚡ *NASDAQ SCANNER ONLINE* ⚡\n"
         "━━━━━━━━━━━━━━━━━━━━━\n\n"
         "🎯 *Limit:* `$15.00 ve Altı`\n"
         "📊 *Kapsam:* `Tüm NASDAQ Scanner`\n\n"
