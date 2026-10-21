@@ -3,7 +3,6 @@ import datetime
 import threading
 import os
 import requests
-import yfinance as yf
 import pandas as pd
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
@@ -30,10 +29,12 @@ def run_flask():
 TELEGRAM_BOT_TOKEN = "8750813780:AAHKpVFsxqT6BgYbISMZhiAp-ryzNsZ8IZY"
 TELEGRAM_CHAT_ID = "7743041008"
 RENDER_DEPLOY_HOOK_URL = "https://api.render.com/deploy/srv-daemtan40ujc73ft425g?key=o1ghEoCwW10"
-MAX_PRICE_LIMIT = 10.00  # Varsayılan limit $15.00
+ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "FJNSHPGHRXHQA9IL")
+
+MAX_PRICE_LIMIT = 10.00  # Varsayılan limit $10.00
 
 bildirilen_fiyatlar = {}    # { 'SYMBOL': son_bildirilen_fiyat }
-gunluk_sinyaller = {}       # { 'SYMBOL': {'entry': price, 'tp1': val, 'tp2': val} }
+gunluk_sinyaller = {}        # { 'SYMBOL': {'entry': price, 'tp1': val, 'tp2': val} }
 
 # Zaman kontrol bayrakları
 rapor_gonderildi_bugun = False
@@ -137,15 +138,15 @@ def check_telegram_commands():
 
                     elif text in ["/help", "/yardim"]:
                         yardim_msg = (
-                            "⚡ *KOMUTLAR*\n"
-                            "━━━━━━━━━━━━━━━━━━━━━\n\n"
-                            "▶️ `/start` - Başlatır\n"
-                            "⏸️ `/stop` - Durdurur\n"
-                            "⚡ `/ping` - Gecikme ölçer\n"
-                            "🖥️ `/status` - Durum\n"
-                            "📊 `/stats` - Sinyaller\n"
-                            "⚙️ `/limit [değer]` - Limit ayarlar\n"
-                            "🔄 `/render` - Yeniden başlatır"
+                            f"⚡ *KOMUTLAR*\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"▶️ `/start` - Başlatır\n"
+                            f"⏸️ `/stop` - Durdurur\n"
+                            f"⚡ `/ping` - Gecikme ölçer\n"
+                            f"🖥️ `/status` - Durum\n"
+                            f"📊 `/stats` - Sinyaller\n"
+                            f"⚙️ `/limit [değer]` - Limit ayarlar\n"
+                            f"🔄 `/render` - Yeniden başlatır"
                         )
                         send_telegram_msg(yardim_msg)
 
@@ -220,29 +221,44 @@ def get_penny_stocks():
 
 
 # ==========================================
-# 5. GÜVENLİ YFINANCE VERİ ÇEKME FONKSİYONU
+# 5. ALPHA VANTAGE GÜVENLİ VERİ ÇEKME FONKSİYONU
 # ==========================================
 def get_market_history(symbol):
+    """
+    yfinance yerine doğrudan Alpha Vantage API kullanarak 
+    aynı DataFrame yapısını (Open, High, Low, Close, Volume) üretir.
+    """
+    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={symbol}&interval=5min&apikey={ALPHA_VANTAGE_API_KEY}&outputsize=compact"
     try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1d", interval="1m")
-        if df.empty:
-            df = ticker.history(period="5d", interval="5m")
+        response = requests.get(url, timeout=10)
+        data = response.json()
         
-        if not df.empty:
-            # Çoklu sütun yapılarını temizle
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
+        if "Error Message" in data or "Note" in data:
+            return pd.DataFrame()
             
-            df = df.rename(columns={
-                'Open': 'Open',
-                'High': 'High',
-                'Low': 'Low',
-                'Close': 'Close',
-                'Volume': 'Volume'
+        time_series_key = "Time Series (5min)"
+        if time_series_key not in data:
+            return pd.DataFrame()
+            
+        time_series = data[time_series_key]
+        
+        rows = []
+        for time_str, values in sorted(time_series.items()):
+            rows.append({
+                'Datetime': pd.to_datetime(time_str),
+                'Open': float(values['1. open']),
+                'High': float(values['2. high']),
+                'Low': float(values['3. low']),
+                'Close': float(values['4. close']),
+                'Volume': int(values['5. volume'])
             })
-            return df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
-        return pd.DataFrame()
+            
+        if not rows:
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(rows)
+        df.set_index('Datetime', inplace=True)
+        return df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
     except Exception:
         return pd.DataFrame()
 
@@ -468,11 +484,11 @@ def canli_kesintisiz_tarama():
 
 def start_scanner_loop():
     welcome_msg = (
-        "⚡ *NASDAQ TERMINAL ONLINE* ⚡\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🎯 *Limit:* `$10.00 ve Altı`\n"
-        "📊 *Kapsam:* `Tüm NASDAQ Scanner`\n\n"
-        "_Tarama başlatıldı..._"
+        f"⚡ *NASDAQ TERMINAL ONLINE* ⚡\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🎯 *Limit:* `$10.00 ve Altı`\n"
+        f"📊 *Kapsam:* `Tüm NASDAQ Scanner`\n\n"
+        f"_Tarama başlatıldı..._"
     )
     send_telegram_msg(welcome_msg)
     
