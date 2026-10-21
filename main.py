@@ -231,7 +231,7 @@ def get_penny_stocks():
 # 5. ALPACA GÜVENLİ VERİ ÇEKME FONKSİYONU
 # ==========================================
 def get_market_history(symbol):
-    url = f"{ALPACA_BASE_URL}/stocks/bars"
+    url = f"https://data.alpaca.markets/v2/stocks/bars"
     params = {
         "symbols": symbol,
         "timeframe": "1D",
