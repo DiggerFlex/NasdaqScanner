@@ -1,13 +1,10 @@
-import time
-import datetime
-import threading
 import os
 import requests
 import pandas as pd
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask
-from zoneinfo import ZoneInfo  # NASDAQ saat dilimi için
+from zoneinfo import ZoneInfo
 
 # ==========================================
 # 1. RENDER UYANIK TUTMA (FLASK SUNUCUSU)
@@ -16,7 +13,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "⚡ NASDAQ SCANNER ACTIVE ⚡"
+    return "⚡ NASDAQ SCANNER (ALPACA) ACTIVE ⚡"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -29,7 +26,16 @@ def run_flask():
 TELEGRAM_BOT_TOKEN = "8750813780:AAHKpVFsxqT6BgYbISMZhiAp-ryzNsZ8IZY"
 TELEGRAM_CHAT_ID = "7743041008"
 RENDER_DEPLOY_HOOK_URL = "https://api.render.com/deploy/srv-daemtan40ujc73ft425g?key=o1ghEoCwW10"
-ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "FJNSHPGHRXHQA9IL")
+
+# Alpaca API Bilgileri
+ALPACA_API_KEY = "PKUE3BNFL5MURCTFWB7M46767Q"
+ALPACA_SECRET_KEY = "8efmUSE1fJewoFmdAEHgtbkJ5XsqxLxsxnwyCY6wzhLg"
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets/v2"
+
+ALPACA_HEADERS = {
+    "APCA-API-KEY-ID": ALPACA_API_KEY,
+    "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY
+}
 
 MAX_PRICE_LIMIT = 10.00  # Varsayılan limit $10.00
 
@@ -41,7 +47,7 @@ rapor_gonderildi_bugun = False
 acilis_bildirildi_bugun = False
 son_gun_str = ""
 
-last_update_id = 0         
+last_update_id = 0             
 is_running = True
 
 lock = threading.Lock()
@@ -161,7 +167,6 @@ def check_telegram_commands():
                             msg_id = init_res.get("result", {}).get("message_id")
                             try:
                                 requests.post(RENDER_DEPLOY_HOOK_URL, timeout=10)
-                                
                                 animasyon_kareleri = [
                                     "🔄 *Render Bağlantısı Kuruluyor...* ⏳",
                                     "🔄 *Render Bağlantısı Kuruluyor...*\n\n📡 _Sunucuya erişildi..._",
@@ -172,7 +177,6 @@ def check_telegram_commands():
                                     "🛡️ *Risk Kontrolleri Yapılıyor...*\n\n[▓▓▓▓▓▓▓▓▓░] *%90* — _Güvenlik aktif_",
                                     "🚀 *İŞLEM TAMAMLANDI!*\n\n[▓▓▓▓▓▓▓▓▓▓] *%100*\n\n✨ *Nasdaq Scanner Renderlandı!*"
                                 ]
-                                
                                 for kare in animasyon_kareleri:
                                     time.sleep(1.2)
                                     if msg_id:
@@ -221,36 +225,32 @@ def get_penny_stocks():
 
 
 # ==========================================
-# 5. ALPHA VANTAGE GÜVENLİ VERİ ÇEKME FONKSİYONU
+# 5. ALPACA GÜVENLİ VERİ ÇEKME FONKSİYONU
 # ==========================================
 def get_market_history(symbol):
     """
-    yfinance yerine doğrudan Alpha Vantage API kullanarak 
+    Alpaca Markets API kullanarak 
     aynı DataFrame yapısını (Open, High, Low, Close, Volume) üretir.
     """
-    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={symbol}&interval=5min&apikey={ALPHA_VANTAGE_API_KEY}&outputsize=compact"
+    url = f"{ALPACA_BASE_URL}/stocks/{symbol}/bars"
+    params = {"timeframe": "1Day", "limit": 30}
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, headers=ALPACA_HEADERS, params=params, timeout=10)
         data = response.json()
         
-        if "Error Message" in data or "Note" in data:
+        if "bars" not in data or not data["bars"]:
             return pd.DataFrame()
             
-        time_series_key = "Time Series (5min)"
-        if time_series_key not in data:
-            return pd.DataFrame()
-            
-        time_series = data[time_series_key]
-        
+        bars = data["bars"]
         rows = []
-        for time_str, values in sorted(time_series.items()):
+        for bar in bars:
             rows.append({
-                'Datetime': pd.to_datetime(time_str),
-                'Open': float(values['1. open']),
-                'High': float(values['2. high']),
-                'Low': float(values['3. low']),
-                'Close': float(values['4. close']),
-                'Volume': int(values['5. volume'])
+                'Datetime': pd.to_datetime(bar['t']),
+                'Open': float(bar['o']),
+                'High': float(bar['h']),
+                'Low': float(bar['l']),
+                'Close': float(bar['c']),
+                'Volume': int(bar['v'])
             })
             
         if not rows:
@@ -484,7 +484,7 @@ def canli_kesintisiz_tarama():
 
 def start_scanner_loop():
     welcome_msg = (
-        f"⚡ *NASDAQ TERMINAL ONLINE* ⚡\n"
+        f"⚡ *NASDAQ TERMINAL ONLINE (ALPACA)* ⚡\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"🎯 *Limit:* `$10.00 ve Altı`\n"
         f"📊 *Kapsam:* `Tüm NASDAQ Scanner`\n\n"
