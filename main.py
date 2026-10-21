@@ -231,22 +231,24 @@ def get_penny_stocks():
 # 5. ALPACA GÜVENLİ VERİ ÇEKME FONKSİYONU
 # ==========================================
 def get_market_history(symbol):
-    """
-    Alpaca Markets API kullanarak 
-    aynı DataFrame yapısını (Open, High, Low, Close, Volume) üretir.
-    """
-    url = f"{ALPACA_BASE_URL}/stocks/{symbol}/bars"
-    params = {"timeframe": "1D", "limit": 30}
+    url = f"{ALPACA_BASE_URL}/stocks/bars"
+    params = {
+        "symbols": symbol,
+        "timeframe": "1D",
+        "limit": 30
+    }
     try:
         response = requests.get(url, headers=ALPACA_HEADERS, params=params, timeout=10)
         data = response.json()
         
-        if "bars" not in data or not data["bars"]:
+        bars_dict = data.get("bars", {})
+        symbol_bars = bars_dict.get(symbol, [])
+        
+        if not symbol_bars:
             return pd.DataFrame()
             
-        bars = data["bars"]
         rows = []
-        for bar in bars:
+        for bar in symbol_bars:
             rows.append({
                 'Datetime': pd.to_datetime(bar['t']),
                 'Open': float(bar['o']),
