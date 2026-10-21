@@ -236,7 +236,7 @@ def get_market_history(symbol):
     aynı DataFrame yapısını (Open, High, Low, Close, Volume) üretir.
     """
     url = f"{ALPACA_BASE_URL}/stocks/{symbol}/bars"
-    params = {"timeframe": "1Day", "limit": 30}
+    params = {"timeframe": "1D", "limit": 30}
     try:
         response = requests.get(url, headers=ALPACA_HEADERS, params=params, timeout=10)
         data = response.json()
