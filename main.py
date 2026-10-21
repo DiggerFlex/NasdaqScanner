@@ -16,7 +16,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "⚡ NASDAQ SCANNER (ALPACA) ACTIVE ⚡"
+    return "⚡ NASDAQ SCANNER ACTIVE ⚡"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
